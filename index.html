@@ -231,6 +231,20 @@ tbody tr:hover{background:rgba(90,166,255,.07)}
   <tbody id="histBody"><tr><td colspan="5" class="loader">لا توجد إشارات بعد.</td></tr></tbody></table>
 </div>
 
+<!-- BACKTEST -->
+<div class="card wide" style="margin-top:12px"><h2>🔬 الباك-تيست (اختبار على بيانات سنة) <button class="ghost" style="float:left;padding:4px 10px" onclick="runBacktest()">▶ شغّل على السهم الحالي</button></h2>
+  <div class="grid">
+    <div class="row"><span class="k">عدد الصفقات</span><span class="v mono" id="btTrades">—</span></div>
+    <div class="row"><span class="k">نسبة النجاح</span><span class="v mono up" id="btWin">—</span></div>
+    <div class="row"><span class="k">فوز / خسارة</span><span class="v mono" id="btWL">—</span></div>
+    <div class="row"><span class="k">متوسط R:R</span><span class="v mono" id="btRR">—</span></div>
+    <div class="row"><span class="k">القيمة المتوقعة/صفقة</span><span class="v mono" id="btEV">—</span></div>
+    <div class="row"><span class="k">الحكم</span><span class="v" id="btVerdict">—</span></div>
+  </div>
+  <div id="btLoader" class="loader" style="display:none">جاري الاختبار...</div>
+  <div class="note">يطبّق منطق الإشارة على بيانات سنة كاملة يوماً بيوم (بدون نظر للمستقبل)، ويقيس كم إشارة نجحت تاريخياً. هذا يخليك تثق بالمنطق أو ترفضه بناءً على أرقام. <b>تعليمي على بيانات متأخرة — ليس ضمان أداء مستقبلي.</b></div>
+</div>
+
 <!-- MONTE CARLO -->
 <div class="card wide" style="margin-top:12px"><h2>🧪 محاكاة مونت كارلو <button class="ghost" style="float:left;padding:4px 10px" onclick="runMC()">▶ تشغيل</button></h2>
   <div class="grid">
@@ -638,6 +652,57 @@ function logSignal(sym,sig,price,conf){
 function clearHist(){HIST=[];$('histBody').innerHTML='<tr><td colspan="5" class="loader">لا توجد إشارات بعد.</td></tr>';}
 
 // ============ مونت كارلو ============
+// === محرّك الباك-تيست (مشي للأمام بدون نظر للمستقبل) ===
+async function runBacktest(){
+  const sym=$('ticker').value.trim().toUpperCase();
+  if(!sym){alert('اختر سهماً أولاً (من جدول الفرص)');return;}
+  $('btLoader').style.display='block';$('btLoader').textContent='جلب بيانات سنة لـ '+sym+'...';
+  // نجلب بيانات يومية لسنة كاملة (range كامل) بغضّ النظر عن التايم فريم
+  const saveTF=TF; TF='1d';
+  const bars=await fetchChart(sym,false);
+  TF=saveTF;
+  if(!bars||bars.length<80){$('btLoader').textContent='بيانات غير كافية للاختبار.';return;}
+  const r=bt_run(bars);
+  $('btLoader').style.display='none';
+  $('btTrades').textContent=r.trades;
+  $('btWin').textContent=r.trades?r.winRate.toFixed(0)+'%':'—';
+  $('btWL').textContent=r.wins+' / '+r.losses;
+  $('btRR').textContent=r.trades?'1 : '+r.avgRR.toFixed(1):'—';
+  $('btEV').innerHTML=r.trades?cls(r.ev.toFixed(2)+'R',r.ev>0):'—';
+  if(!r.trades)$('btVerdict').innerHTML=cls('لا صفقات كافية',null);
+  else $('btVerdict').innerHTML=r.ev>0.3&&r.winRate>=50?cls('منطق واعد ✓',true):r.ev>0?cls('حدّي',null):cls('ضعيف ✗',false);
+}
+
+function bt_run(bars){
+  const c=bars.map(x=>x.c);
+  const e20=ema(c,20), e50=ema(c,50), R=rsi(c);
+  const trades=[]; let i=55;
+  while(i<bars.length-1){
+    const price=c[i];
+    if(isNaN(R[i])){i++;continue;}
+    const win=bars.slice(i-40,i), res=Math.max(...win.map(x=>x.h)), sup=Math.min(...win.map(x=>x.l));
+    const srpos=(price-sup)/((res-sup)||1)*100;
+    const long = price>e20[i] && e20[i]>e50[i] && R[i]>=50 && R[i]<72 && srpos>50;
+    if(long){
+      const A=bt_atr(bars,i);
+      const entry=price, stop=Math.max(sup,price-1.5*A), target=price+2*(price-stop);
+      let outcome=null;
+      for(let j=i+1;j<Math.min(i+21,bars.length);j++){
+        if(bars[j].h>=target){outcome='win';break;}
+        if(bars[j].l<=stop){outcome='loss';break;}
+      }
+      if(outcome){trades.push({result:outcome,rr:(target-entry)/((entry-stop)||1)});i+=5;continue;}
+    }
+    i++;
+  }
+  const wins=trades.filter(t=>t.result==='win').length, losses=trades.length-wins;
+  const winRate=trades.length?wins/trades.length*100:0;
+  const avgRR=trades.length?trades.reduce((a,t)=>a+t.rr,0)/trades.length:0;
+  const ev=(winRate/100*avgRR)-((100-winRate)/100*1);
+  return{trades:trades.length,wins,losses,winRate,avgRR,ev};
+}
+function bt_atr(b,end,p=14){let tr=[];for(let i=Math.max(1,end-p*2);i<=end;i++){const h=b[i].h,l=b[i].l,pc=b[i-1].c;tr.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));}return tr.reduce((x,y)=>x+y,0)/(tr.length||1);}
+
 function runMC(){
   const l=window._last;if(!l||!l.entry){$('mcVerdict').textContent='حلّل أولاً';return;}
   const n=1000, steps=20, drift=l.sig==='long'?0.0003:l.sig==='short'?-0.0003:0;

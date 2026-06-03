@@ -219,6 +219,12 @@ tbody tr:hover{background:rgba(90,166,255,.07)}
   </div>
 </div>
 
+<!-- TRACK PERFORMANCE -->
+<div class="card wide" style="margin-top:12px"><h2>📈 أداء الإشارات (حقيقي)</h2>
+  <div id="trackStats" class="mono" style="font-size:15px">لا توجد نتائج بعد — تتراكم مع الوقت.</div>
+  <div class="note">يسجّل كل إشارة ويقيس لاحقاً إن وصلت الهدف أو الوقف. تتحدّث كل ما تفتح السهم.</div>
+</div>
+
 <!-- SIGNAL HISTORY -->
 <div class="card wide" style="margin-top:12px"><h2>📋 سجل الإشارات <button class="ghost" style="float:left;padding:4px 10px" onclick="clearHist()">مسح</button></h2>
   <table><thead><tr><th>الوقت</th><th>الرمز</th><th>الإشارة</th><th>السعر</th><th>الثقة</th></tr></thead>
@@ -353,10 +359,47 @@ async function load(){
   DATA={sym,bars:data};
   $('statusBadge').textContent='● مباشر (متأخر 15د)';$('statusBadge').className='badge live';
   $('chTicker').textContent=sym;$('bmTicker').textContent=sym;
+  resolveSignals(sym,DATA.bars.at(-1).c);
   drawChart();analyze();
 }
 
 // ============ ماسح السوق (متوازي = أسرع بكثير) ============
+// === فلتر اتجاه السوق العام (SPY) ===
+let MARKET_BULL=null;
+async function updateMarketTrend(){
+  const bars=await fetchChart('SPY',true);
+  if(bars&&bars.length>50){const c=bars.map(x=>x.c);MARKET_BULL=c.at(-1)>ema(c,50).at(-1);}
+}
+
+// === تتبّع نتائج الإشارات ===
+function loadTrack(){try{return JSON.parse(localStorage.getItem('sigTrack')||'[]');}catch(e){return[];}}
+function saveTrack(t){try{localStorage.setItem('sigTrack',JSON.stringify(t.slice(-200)));}catch(e){}}
+function recordSignal(sym,sig,entry,stop,target){
+  if(sig!=='long'&&sig!=='short')return;
+  const t=loadTrack();
+  if(t.some(x=>x.sym===sym&&x.open&&x.sig===sig))return;
+  t.push({sym,sig,entry,stop,target,ts:Date.now(),open:true,result:null});
+  saveTrack(t);renderTrackStats();
+}
+function resolveSignals(sym,price){
+  const t=loadTrack();let changed=false;
+  t.forEach(x=>{
+    if(!x.open||x.sym!==sym)return;
+    if(x.sig==='long'){if(price>=x.target){x.open=false;x.result='win';changed=true;}
+      else if(price<=x.stop){x.open=false;x.result='loss';changed=true;}}
+    else{if(price<=x.target){x.open=false;x.result='win';changed=true;}
+      else if(price>=x.stop){x.open=false;x.result='loss';changed=true;}}
+  });
+  if(changed){saveTrack(t);renderTrackStats();}
+}
+function renderTrackStats(){
+  const t=loadTrack().filter(x=>x.result);
+  const w=t.filter(x=>x.result==='win').length;
+  const wr=t.length?(w/t.length*100).toFixed(0):'—';
+  const el=document.getElementById('trackStats');
+  if(el)el.innerHTML=`الإشارات المُقيّمة: ${t.length} | فوز: ${w} | نسبة النجاح: ${wr}%`;
+}
+
 async function scan(){
   const maxPrice=20;
   $('scanBtn').disabled=true;$('scanBtn').textContent='جاري الفحص...';
@@ -364,6 +407,7 @@ async function scan(){
   $('scanTable').style.display='none';$('scanBody').innerHTML='';
   SCAN_RESULTS=[];
   let done=0;
+  await updateMarketTrend();
   try{
     const BATCH=10;
     for(let i=0;i<SCAN_LIST.length;i+=BATCH){
@@ -427,6 +471,7 @@ function quickScore(b){
   let sig='wait';
   if(s>=60&&confirms>=3&&M.h>0&&price>e20)sig='long';
   else if(s<35&&M.h<0&&price<e20)sig='short';
+  if(MARKET_BULL===false && sig==='long') sig='wait';
   return{score:s,rsi:R,volx,trend,sig,confirms};
 }
 
@@ -566,6 +611,7 @@ function bestMove(d){
   $('bmConf').textContent=d.sc+'%';
   $('bmNote').textContent=note;
   window._last={entry,stop,target,A:d.A,sig:cls2,sc:d.sc};
+  recordSignal(DATA.sym,cls2,entry,stop,target);
   if(entry) logSignal(DATA.sym,sig,entry,d.sc);
 }
 
@@ -635,6 +681,7 @@ function drawChart(){
 }
 
 // لا فحص تلقائي — المستخدم يضغط الزر متى شاء (يبقى الزر مستجيباً دائماً)
+renderTrackStats();
 window.addEventListener('error',e=>{
   const b=$('scanLoader');if(b){b.style.display='block';b.textContent='خطأ في الصفحة: '+e.message;}
 });

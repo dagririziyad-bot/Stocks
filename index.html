@@ -170,6 +170,8 @@ tbody tr:hover{background:rgba(90,166,255,.07)}
     <div class="row"><span class="k">إشارة MACD</span><span class="v mono" id="macds">—</span></div>
     <div class="row"><span class="k">الهيستوجرام</span><span class="v mono" id="macdh">—</span></div>
     <div class="row"><span class="k">بولينجر %B</span><span class="v mono" id="bbp">—</span></div>
+    <div class="row"><span class="k">ADX (قوة الاتجاه)</span><span class="v mono" id="adx">—</span></div>
+    <div class="row"><span class="k">ستوكاستيك</span><span class="v mono" id="stoch">—</span></div>
   </div>
 
   <!-- VOLATILITY -->
@@ -462,31 +464,35 @@ function quickScore(b){
   const srpos=(price-sup)/((res-sup)||1)*100;
   const macdRising=M.h>Mprev.h;                    // الهيستوجرام يتحسّن
   const emaUp=e20>e20prev;                          // المتوسط يصعد
+  const ADX=adx(b);                                 // قوة الاتجاه
+  const ST=stoch(b);                                // ستوكاستيك
 
   let s=0;
-  // اتجاه (٢٥): محاذاة كاملة + ميل صاعد
-  if(price>e20&&e20>e50){s+=20; if(emaUp)s+=5;} else if(price>e20)s+=10;
-  // زخم MACD (٢٠): إيجابي + يتحسّن (تأكيد مزدوج)
-  if(M.h>0){s+=12; if(macdRising)s+=8;} else if(macdRising)s+=4;
-  // RSI (١٥): النطاق الصحي فقط، عقوبة على التشبع
-  if(R>=52&&R<=68)s+=15; else if(R>45&&R<72)s+=8; else if(R>=72||R<35)s+=0; else s+=4;
-  // حجم (٢٠): تأكيد السيولة
-  if(volx>1.5)s+=20; else if(volx>1.2)s+=13; else if(volx>1)s+=6;
+  // اتجاه (٢٠): محاذاة كاملة + ميل صاعد
+  if(price>e20&&e20>e50){s+=15; if(emaUp)s+=5;} else if(price>e20)s+=8;
+  // قوة الاتجاه ADX (١٥): اتجاه حقيقي مو عرضي
+  if(ADX>=30)s+=15; else if(ADX>=22)s+=9; else if(ADX>=18)s+=4;
+  // زخم MACD (١٥): إيجابي + يتحسّن
+  if(M.h>0){s+=9; if(macdRising)s+=6;} else if(macdRising)s+=3;
+  // RSI (١٢): النطاق الصحي، عقوبة على التشبع
+  if(R>=52&&R<=68)s+=12; else if(R>45&&R<72)s+=6; else if(R>=72||R<35)s+=0; else s+=3;
+  // حجم (١٨): تأكيد السيولة
+  if(volx>1.5)s+=18; else if(volx>1.2)s+=11; else if(volx>1)s+=5;
   // موقع قرب الاختراق (٢٠)
   if(srpos>70)s+=20; else if(srpos>55)s+=12; else if(srpos>40)s+=6;
   s=Math.min(100,Math.round(s));
 
-  // عدد التأكيدات (فلتر أذكى): كم شرط قوي تحقق
-  const confirms=[price>e20&&e20>e50, M.h>0&&macdRising, R>=52&&R<=68, volx>1.2, srpos>60]
+  // عدد التأكيدات (٦ شروط): فلتر أذكى
+  const confirms=[price>e20&&e20>e50, ADX>=25, M.h>0&&macdRising, R>=52&&R<=68, volx>1.2, srpos>60]
     .filter(Boolean).length;
 
   let trend=price>e20&&e20>e50?'صاعد قوي':price>e20?'صاعد':price<e20&&e20<e50?'هابط قوي':price<e20?'هابط':'عرضي';
-  // إشارة: تتطلب ٣ تأكيدات على الأقل (تقلّل الإشارات الضعيفة)
+  // إشارة: تتطلب ٤ تأكيدات + اتجاه حقيقي (ADX) — تقلّل الإشارات الكاذبة كثيراً
   let sig='wait';
-  if(s>=60&&confirms>=3&&M.h>0&&price>e20)sig='long';
+  if(s>=62&&confirms>=4&&ADX>=22&&M.h>0&&price>e20)sig='long';
   else if(s<35&&M.h<0&&price<e20)sig='short';
   if(MARKET_BULL===false && sig==='long') sig='wait';
-  return{score:s,rsi:R,volx,trend,sig,confirms};
+  return{score:s,rsi:R,volx,trend,sig,confirms,adx:ADX};
 }
 
 function renderScan(){
@@ -526,6 +532,32 @@ function bbPercent(c,p=20){const s=c.slice(-p);const m=s.reduce((a,b)=>a+b,0)/p;
   const sd=Math.sqrt(s.reduce((a,b)=>a+(b-m)**2,0)/p);const u=m+2*sd,lo=m-2*sd;
   return{pb:(c.at(-1)-lo)/((u-lo)||1),w:(u-lo)/m};}
 
+// === مؤشرات احترافية إضافية ===
+function adx(bars,p=14){
+  if(bars.length<p*3)return 0;
+  let tr=[],pdm=[],ndm=[];
+  for(let i=1;i<bars.length;i++){
+    const h=bars[i].h,l=bars[i].l,pc=bars[i-1].c,ph=bars[i-1].h,pl=bars[i-1].l;
+    tr.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));
+    const up=h-ph,dn=pl-l;
+    pdm.push(up>dn&&up>0?up:0); ndm.push(dn>up&&dn>0?dn:0);
+  }
+  const sm=a=>{let s=a.slice(0,p).reduce((x,y)=>x+y,0);const o=[s];for(let i=p;i<a.length;i++){s=s-s/p+a[i];o.push(s);}return o;};
+  const trs=sm(tr),pds=sm(pdm),nds=sm(ndm),dx=[];
+  for(let i=0;i<trs.length;i++){const pdi=100*pds[i]/(trs[i]||1),ndi=100*nds[i]/(trs[i]||1);
+    dx.push(100*Math.abs(pdi-ndi)/((pdi+ndi)||1));}
+  let a=dx.slice(0,p).reduce((x,y)=>x+y,0)/p;for(let i=p;i<dx.length;i++)a=(a*(p-1)+dx[i])/p;
+  return a;
+}
+function stoch(bars,p=14){const s=bars.slice(-p);const hh=Math.max(...s.map(x=>x.h)),ll=Math.min(...s.map(x=>x.l));
+  return 100*(bars.at(-1).c-ll)/((hh-ll)||1);}
+function bullishDiv(c,rsiArr){
+  if(c.length<22||rsiArr.length<22)return false;
+  const p1=Math.min(...c.slice(-10)),p2=Math.min(...c.slice(-20,-10));
+  const r1=Math.min(...rsiArr.slice(-10).filter(x=>!isNaN(x))),r2=Math.min(...rsiArr.slice(-20,-10).filter(x=>!isNaN(x)));
+  return p1<p2 && r1>r2;
+}
+
 // ============ التحليل ============
 function analyze(){
   const b=DATA.bars, c=b.map(x=>x.c);
@@ -533,6 +565,7 @@ function analyze(){
   const vw=vwapCalc(b.slice(-Math.min(b.length,100)));
   const R=rsi(c).at(-1), A=atr(b), atrp=A/price*100;
   const M=macd(c), BB=bbPercent(c);
+  const ADX=adx(b), ST=stoch(b);
   // S/R من قمم/قيعان آخر 40 شمعة
   const win=b.slice(-40); const res=Math.max(...win.map(x=>x.h)), sup=Math.min(...win.map(x=>x.l));
   const srpos=(price-sup)/((res-sup)||1)*100;
@@ -553,6 +586,8 @@ function analyze(){
   $('macd').textContent=fmt(M.m,3);$('macds').textContent=fmt(M.s,3);
   $('macdh').innerHTML=cls(fmt(M.h,3),M.h>0);
   $('bbp').textContent=fmt(BB.pb*100,0)+'%';
+  $('adx').innerHTML=cls(fmt(ADX,0)+(ADX>=25?' قوي':ADX>=18?' متوسط':' ضعيف'),ADX>=25?true:ADX>=18?null:false);
+  $('stoch').innerHTML=cls(fmt(ST,0),ST>80?false:ST<20?true:null);
   $('atr').textContent=fmt(A);$('atrp').textContent=fmt(atrp,2)+'%';
   $('atrlvl').innerHTML=atrp<1.5?cls('منخفض',null):atrp<4?cls('صحي',true):cls('مرتفع',false);
   $('atrnote').textContent=atrp<1.5?'حركة ضعيفة — فرص اختراق أقل':atrp<4?'تذبذب مناسب للتداول':'تذبذب عالٍ — قلّل حجم المركز';

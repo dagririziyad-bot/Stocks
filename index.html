@@ -518,49 +518,26 @@ async function claudeAnalyze(sym, ltf, htf, apiKey) {
   const recentHighs = findSwingHighs(ltf, 5);
   const recentLows  = findSwingLows(ltf, 5);
 
-  const prompt = `You are a professional ICT / Smart Money Concepts analyst.
-Analyze ${sym} with REAL market data and return ONLY valid JSON (no markdown, no text outside).
-
-Current Price: ${last.c.toFixed(2)}
-Swing High (20): ${swH.toFixed(2)}
-Swing Low  (20): ${swL.toFixed(2)}
-Equilibrium: ${equilibrium.toFixed(2)}
-Premium Zone: above ${premium.toFixed(2)}
-Discount Zone: below ${discount.toFixed(2)}
-Recent Swing Highs: ${recentHighs.map(p=>p.toFixed(2)).join(', ')}
-Recent Swing Lows:  ${recentLows.map(p=>p.toFixed(2)).join(', ')}
-HTF Candles count: ${htf.length}
-LTF Interval: ${S.ltf}
-
-Return JSON:
-{
-  "bias": "BULLISH"|"BEARISH"|"NEUTRAL",
-  "confluenceScore": 0-100,
-  "scoreDescription": "Arabic max 12 words",
-  "bsl": [{"price":number,"label":"string","probability":0-100,"strength":"HIGH"|"MED"|"LOW"}],
-  "ssl": [{"price":number,"label":"string","probability":0-100,"strength":"HIGH"|"MED"|"LOW"}],
-  "orderBlocks": [{"type":"BULL"|"BEAR","high":number,"low":number,"label":"string","fresh":bool}],
-  "fvg": [{"type":"BULL"|"BEAR","high":number,"low":number,"label":"string"}],
-  "po3": {"accumulation":"string","manipulation":"string","distribution":"string"},
-  "premiumZone": {"high":number,"low":number},
-  "discountZone": {"high":number,"low":number},
-  "entryAlert": "Arabic string max 20 words",
-  "entryType": "LONG"|"SHORT"|"WAIT"
-}
-
-Use exact prices from the data. BSL = recent swing highs + equal highs. SSL = recent swing lows + equal lows.`;
+  // Keep prompt short so JSON fits easily in token budget
+  const prompt = `ICT analyst. Symbol: ${sym}. Return ONLY valid compact JSON, no markdown.
+Data: price=${last.c.toFixed(2)}, swingH=${swH.toFixed(2)}, swingL=${swL.toFixed(2)}, eq=${equilibrium.toFixed(2)}, prem=${premium.toFixed(2)}, disc=${discount.toFixed(2)}, recentH=[${recentHighs.map(p=>p.toFixed(2)).join(',')}], recentL=[${recentLows.map(p=>p.toFixed(2)).join(',')}]
+Return: {"bias":"BULLISH|BEARISH|NEUTRAL","confluenceScore":0-100,"scoreDescription":"Arabic 8 words max","bsl":[{"price":N,"label":"S","probability":N,"strength":"HIGH|MED|LOW"}],"ssl":[{"price":N,"label":"S","probability":N,"strength":"HIGH|MED|LOW"}],"orderBlocks":[{"type":"BULL|BEAR","high":N,"low":N,"label":"S","fresh":true}],"fvg":[{"type":"BULL|BEAR","high":N,"low":N,"label":"S"}],"po3":{"accumulation":"S","manipulation":"S","distribution":"S"},"premiumZone":{"high":N,"low":N},"discountZone":{"high":N,"low":N},"entryAlert":"Arabic 12 words max","entryType":"LONG|SHORT|WAIT"}
+Rules: bsl max 3 items, ssl max 3, ob max 2, fvg max 2. Use prices from data only.`;
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})
+    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:prompt}]})
   });
   if (!resp.ok) {
     const err = await resp.json().catch(()=>({}));
     throw new Error('Claude API: '+(err?.error?.message||resp.status));
   }
   const data = await resp.json();
-  const txt = data.content[0].text.replace(/```json|```/g,'').trim();
+  let txt = data.content[0].text.replace(/```json|```/g,'').trim();
+
+  // ── JSON repair: if truncated, close open structures
+  txt = repairJSON(txt);
   return JSON.parse(txt);
 }
 
@@ -586,6 +563,33 @@ function findSwingLows(candles, n=5) {
     }
   }
   return out.slice(-n);
+}
+
+// ══════════════════════════════════════════
+//  JSON REPAIR (handles truncated responses)
+// ══════════════════════════════════════════
+function repairJSON(txt) {
+  // Remove trailing incomplete key-value or comma
+  txt = txt.replace(/,\s*$/, '').replace(/,\s*"[^"]*$/, '');
+  // Count open/close braces and brackets
+  let braces = 0, brackets = 0;
+  let inStr = false, escape = false;
+  for (const ch of txt) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+  // Close any open strings first (rare but possible)
+  if (inStr) txt += '"';
+  // Close arrays then objects
+  for (let i = 0; i < brackets; i++) txt += ']';
+  for (let i = 0; i < braces; i++) txt += '}';
+  return txt;
 }
 
 // ══════════════════════════════════════════

@@ -418,24 +418,6 @@
 </head>
 <body>
 
-<!-- API Key Modal -->
-<div class="modal-overlay visible" id="apiModal">
-  <div class="modal">
-    <h2>🔗 Connect Tradier</h2>
-    <p>Tradier يوفر بيانات Options مجانية كاملة مع Greeks و IV. سجّل حساب مجاني على tradier.com واحصل على API token من قسم <strong>Settings → API Access</strong>.</p>
-    <label>TRADIER API TOKEN</label>
-    <input type="password" id="apiKeyInput" placeholder="your_tradier_token_here" />
-    <div style="font-size:11px; color: var(--muted); margin-bottom:16px;">
-      ما عندك حساب؟ <a href="https://developer.tradier.com/user/sign_up" target="_blank" style="color:var(--accent);">سجّل مجاناً على tradier.com →</a>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-primary" id="connectBtn" onclick="saveApiKey()">CONNECT</button>
-      <button class="btn btn-secondary" onclick="useDemoMode()">USE DEMO DATA</button>
-    </div>
-    <div id="connectError" style="margin-top:10px; font-size:11px; color:var(--bear); font-family:var(--mono); display:none;"></div>
-  </div>
-</div>
-
 <!-- Progress bar -->
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
 
@@ -444,7 +426,7 @@
   <div class="logo">OPTIONS<span>FLOW</span> <span style="font-size:10px; color:var(--muted);">// SCANNER v2</span></div>
   <div style="display:flex; align-items:center; gap:18px;">
     <div id="market-status"><span class="status-dot" id="mDot"></span><span id="mText">Checking market...</span></div>
-    <button class="btn btn-secondary" style="width:auto; padding:5px 12px; font-size:11px;" onclick="showApiModal()">⚙ TRADIER TOKEN</button>
+    <div style="font-size:11px; font-family:var(--mono); color:var(--bull);">● Yahoo Finance — مجاني بلا API Key</div>
   </div>
 </div>
 
@@ -507,6 +489,7 @@
       <h3>SCAN</h3>
       <button class="btn btn-primary" id="scanBtn" onclick="runScan()">▶ RUN SCAN</button>
       <button class="btn btn-secondary" onclick="clearResults()">✕ CLEAR</button>
+      <button class="btn btn-secondary" onclick="useDemoMode()" style="margin-top:4px; font-size:10px;">DEMO MODE</button>
     </div>
 
     <div class="sidebar-section" id="stockInfoBox" style="display:none;">
@@ -598,7 +581,6 @@
 
 <script>
 // ── STATE ──
-let API_KEY = localStorage.getItem('tradier_token') || '';
 let DEMO_MODE = false;
 let allContracts = [];
 let currentFilter = 'all';
@@ -606,14 +588,26 @@ let sortCol = 'score';
 let sortDir = -1;
 let stockPrice = 0;
 
+// ── CORS PROXIES (fallback chain) ──
+const PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://cors-anywhere.herokuapp.com/${url}`,
+];
+
+async function fetchWithProxy(url) {
+  for (const proxy of PROXIES) {
+    try {
+      const res = await fetch(proxy(url), { headers: { 'Accept': 'application/json' } });
+      if (res.ok) return res;
+    } catch {}
+  }
+  throw new Error('تعذّر الاتصال بـ Yahoo Finance — جرب Demo Mode مؤقتاً');
+}
+
 // ── INIT ──
 window.onload = () => {
   checkMarketStatus();
-  if (!API_KEY) {
-    document.getElementById('apiModal').classList.add('visible');
-  } else {
-    document.getElementById('apiModal').classList.remove('visible');
-  }
   setInterval(checkMarketStatus, 60000);
 };
 
@@ -636,72 +630,12 @@ function checkMarketStatus() {
   }
 }
 
-// ── API KEY (TRADIER) ──
-async function saveApiKey() {
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key) { showConnectError('أدخل التوكن أولاً'); return; }
-
-  const btn = document.getElementById('connectBtn');
-  btn.textContent = 'CONNECTING...';
-  btn.disabled = true;
-  document.getElementById('connectError').style.display = 'none';
-
-  try {
-    // Test with a lightweight Tradier profile call via CORS proxy
-    const res = await fetch('https://api.tradier.com/v1/user/profile', {
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'Accept': 'application/json'
-      }
-    });
-
-    if (res.status === 401) throw new Error('Token غير صحيح — تأكد من نسخه كامل من Tradier Dashboard');
-    if (res.status === 403) throw new Error('Token غير مخوّل — تأكد من تفعيل API Access في الحساب');
-    if (!res.ok) throw new Error(`خطأ في الاتصال (${res.status}) — حاول مرة ثانية`);
-
-    const data = await res.json();
-    if (!data.profile) throw new Error('استجابة غير متوقعة — تحقق من التوكن');
-
-    API_KEY = key;
-    DEMO_MODE = false;
-    localStorage.setItem('tradier_token', key);
-    document.getElementById('apiModal').classList.remove('visible');
-    showToast('✓ متصل بـ Tradier — بيانات حقيقية', 'success');
-
-  } catch (err) {
-    // Network error = likely CORS on sandbox, try to proceed anyway
-    if (err.name === 'TypeError' && err.message.includes('fetch')) {
-      // CORS issue but key format looks right — save and proceed
-      API_KEY = key;
-      DEMO_MODE = false;
-      localStorage.setItem('tradier_token', key);
-      document.getElementById('apiModal').classList.remove('visible');
-      showToast('✓ Token محفوظ — سيتم التحقق عند السكان', 'success');
-    } else {
-      showConnectError('❌ ' + err.message);
-    }
-  } finally {
-    btn.textContent = 'CONNECT';
-    btn.disabled = false;
-  }
-}
-
-function showConnectError(msg) {
-  const el = document.getElementById('connectError');
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-
-function showApiModal() {
-  document.getElementById('apiKeyInput').value = API_KEY;
-  document.getElementById('connectError').style.display = 'none';
-  document.getElementById('apiModal').classList.add('visible');
-}
+// ── DEMO MODE TOGGLE ──
 function useDemoMode() {
-  DEMO_MODE = true;
-  API_KEY = '';
-  document.getElementById('apiModal').classList.remove('visible');
-  showToast('Demo mode — بيانات تجريبية', 'success');
+  DEMO_MODE = !DEMO_MODE;
+  const btn = document.querySelector('.btn-secondary[onclick="useDemoMode()"]');
+  if (btn) btn.textContent = DEMO_MODE ? '✓ DEMO ON — اضغط للإيقاف' : 'DEMO MODE';
+  showToast(DEMO_MODE ? 'Demo mode — بيانات تجريبية' : 'Live mode — Yahoo Finance', 'success');
 }
 
 // ── QUICK TICKER ──
@@ -784,73 +718,50 @@ function getRecommendation(score) {
   return { label: 'AVOID', cls: 'avoid', icon: '❌' };
 }
 
-// ── FETCH FROM TRADIER ──
-async function fetchFromTradier(ticker) {
-  const headers = {
-    'Authorization': `Bearer ${API_KEY}`,
-    'Accept': 'application/json'
-  };
-
-  // 1. Get stock quote
-  const quoteRes = await fetch(
-    `https://api.tradier.com/v1/markets/quotes?symbols=${ticker}&greeks=false`,
-    { headers }
-  );
-  if (!quoteRes.ok) {
-    if (quoteRes.status === 401) throw new Error('Token غير صحيح — افتح ⚙ TRADIER TOKEN وأعد الإدخال');
-    throw new Error(`خطأ في جلب سعر السهم (${quoteRes.status})`);
-  }
+// ── FETCH FROM YAHOO FINANCE (مجاني - بلا API Key) ──
+async function fetchFromYahoo(ticker) {
+  // 1. Get stock quote + options expirations
+  const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/options/${ticker}`;
+  const quoteRes = await fetchWithProxy(quoteUrl);
   const quoteData = await quoteRes.json();
-  const quote = quoteData?.quotes?.quote;
-  if (!quote) throw new Error(`Ticker "${ticker}" غير موجود`);
-  stockPrice = quote.last || quote.close || quote.prevclose || 0;
 
-  // 2. Get options expirations
+  const result = quoteData?.optionChain?.result?.[0];
+  if (!result) throw new Error(`Ticker "${ticker}" غير موجود أو لا توجد له خيارات`);
+
+  stockPrice = result.quote?.regularMarketPrice || result.quote?.ask || 0;
+  const allExpDates = result.expirationDates || []; // Unix timestamps
+
+  // 2. Filter by DTE
   const expDays = parseInt(document.getElementById('expiryFilter').value);
-  const expRes = await fetch(
-    `https://api.tradier.com/v1/markets/options/expirations?symbol=${ticker}&includeAllRoots=false`,
-    { headers }
-  );
-  if (!expRes.ok) throw new Error(`خطأ في جلب تواريخ الانتهاء (${expRes.status})`);
-  const expData = await expRes.json();
+  const nowSec = Date.now() / 1000;
+  const maxSec = nowSec + expDays * 86400;
+  const validDates = allExpDates.filter(d => d >= nowSec && d <= maxSec);
 
-  let expirations = expData?.expirations?.date || [];
-  if (typeof expirations === 'string') expirations = [expirations];
+  if (validDates.length === 0) throw new Error(`لا توجد عقود في نطاق ${expDays} يوم — جرب نطاق أوسع`);
 
-  // Filter expirations within range
-  const today = new Date();
-  const maxDate = new Date();
-  maxDate.setDate(today.getDate() + expDays);
-  expirations = expirations.filter(d => {
-    const dt = new Date(d);
-    return dt >= today && dt <= maxDate;
-  });
-
-  if (expirations.length === 0) throw new Error(`لا توجد عقود في نطاق ${expDays} يوم — جرب نطاق أوسع`);
-
-  // 3. Fetch options chain for each expiration (max 4 to avoid rate limits)
-  const expsToFetch = expirations.slice(0, 4);
+  // 3. Fetch each expiration (max 5)
+  const toFetch = validDates.slice(0, 5);
   const allOptions = [];
 
-  for (const exp of expsToFetch) {
-    const chainRes = await fetch(
-      `https://api.tradier.com/v1/markets/options/chains?symbol=${ticker}&expiration=${exp}&greeks=true`,
-      { headers }
-    );
-    if (!chainRes.ok) continue;
-    const chainData = await chainRes.json();
-    const options = chainData?.options?.option || [];
-    const arr = Array.isArray(options) ? options : [options];
-    allOptions.push(...arr);
+  for (const expTs of toFetch) {
+    const chainUrl = `https://query1.finance.yahoo.com/v7/finance/options/${ticker}?date=${expTs}`;
+    try {
+      const chainRes = await fetchWithProxy(chainUrl);
+      const chainData = await chainRes.json();
+      const opts = chainData?.optionChain?.result?.[0]?.options?.[0];
+      if (!opts) continue;
+      const calls = (opts.calls || []).map(c => ({ ...c, _type: 'call' }));
+      const puts  = (opts.puts  || []).map(p => ({ ...p, _type: 'put'  }));
+      allOptions.push(...calls, ...puts);
+    } catch { continue; }
   }
 
-  if (allOptions.length === 0) throw new Error('لا توجد بيانات عقود — تحقق من الـ ticker أو وسّع النطاق الزمني');
-
+  if (allOptions.length === 0) throw new Error('لا توجد بيانات — جرب نطاقاً زمنياً أوسع');
   return { stockPrice, options: allOptions };
 }
 
-// ── PARSE TRADIER OPTIONS ──
-function parseTradierOptions(results, stockPx) {
+// ── PARSE YAHOO OPTIONS ──
+function parseYahooOptions(results, stockPx) {
   const minVol = parseInt(document.getElementById('volFilter').value) || 0;
   const minOI  = parseInt(document.getElementById('oiFilter').value) || 0;
   const dMin   = parseFloat(document.getElementById('deltaMin').value) || 0;
@@ -858,33 +769,33 @@ function parseTradierOptions(results, stockPx) {
   const typeF  = document.getElementById('typeFilter').value;
 
   return results.map(r => {
-    const expiry = r.expiration_date || '';
-    const T = Math.max(0, (new Date(expiry) - new Date()) / (1000*60*60*24*365));
-    const iv = (r.greeks?.smv_vol || r.implied_volatility || 0.35);
-    const type = (r.option_type || 'call').toLowerCase();
-
-    // Use Tradier greeks if available, else Black-Scholes
-    const hasTradierGreeks = r.greeks && r.greeks.delta !== undefined && r.greeks.delta !== null;
+    const expiry = new Date(r.expiration * 1000).toISOString().split('T')[0];
+    const T = Math.max(0, (r.expiration - Date.now()/1000) / (365*86400));
+    // Yahoo gives IV as decimal (e.g. 0.45 = 45%)
+    const iv = r.impliedVolatility || 0.35;
+    const type = r._type;
+    const last = r.lastPrice || r.ask || 0;
     const bs = blackScholes(stockPx, r.strike, T, 0.05, iv, type);
 
     return {
-      symbol:       r.symbol || '',
+      symbol:       r.contractSymbol || '',
       type,
       strike:       r.strike || 0,
       expiry,
       dte:          Math.round(T * 365),
-      last:         r.last || r.mid || ((r.bid + r.ask) / 2) || bs.price,
+      last,
       bid:          r.bid || 0,
       ask:          r.ask || 0,
       iv,
       volume:       r.volume || 0,
-      openInterest: r.open_interest || 0,
-      delta:        hasTradierGreeks ? r.greeks.delta : bs.delta,
-      gamma:        hasTradierGreeks ? r.greeks.gamma : bs.gamma,
-      theta:        hasTradierGreeks ? r.greeks.theta : bs.theta,
-      vega:         hasTradierGreeks ? r.greeks.vega  : bs.vega,
-      rho:          hasTradierGreeks ? (r.greeks.rho || bs.rho) : bs.rho,
-      bsPrice:      bs.price,
+      openInterest: r.openInterest || 0,
+      // Greeks via Black-Scholes (Yahoo doesn't provide them)
+      delta:  bs.delta,
+      gamma:  bs.gamma,
+      theta:  bs.theta,
+      vega:   bs.vega,
+      rho:    bs.rho,
+      bsPrice: bs.price,
     };
   }).filter(c => {
     if (!c.strike || c.dte <= 0) return false;
@@ -950,18 +861,18 @@ async function runScan() {
   setProgress(20);
 
   try {
-    if (DEMO_MODE || !API_KEY) {
+    if (DEMO_MODE) {
       await new Promise(r => setTimeout(r, 800));
       allContracts = generateDemoData(ticker);
       setProgress(100);
       document.getElementById('tableTitle').textContent = `${ticker} — DEMO MODE (${allContracts.length} contracts)`;
     } else {
       setProgress(30);
-      const { stockPrice: sp, options } = await fetchFromTradier(ticker);
+      const { stockPrice: sp, options } = await fetchFromYahoo(ticker);
       setProgress(80);
-      allContracts = parseTradierOptions(options, sp);
+      allContracts = parseYahooOptions(options, sp);
       setProgress(100);
-      document.getElementById('tableTitle').textContent = `${ticker} — TRADIER LIVE (${allContracts.length} contracts)`;
+      document.getElementById('tableTitle').textContent = `${ticker} — YAHOO FINANCE (${allContracts.length} contracts)`;
     }
 
     renderTable(allContracts);
@@ -973,7 +884,7 @@ async function runScan() {
   } catch (err) {
     showToast(err.message, 'error');
     document.getElementById('emptyState').style.display = 'flex';
-    document.getElementById('emptyState').innerHTML = `<div class="icon">⚠️</div><h3>خطأ</h3><p>${err.message}</p>`;
+    document.getElementById('emptyState').innerHTML = `<div class="icon">⚠️</div><h3>خطأ</h3><p>${err.message}</p><p style="margin-top:8px; font-size:11px; color:var(--muted);">يمكنك استخدام Demo Mode مؤقتاً</p>`;
   } finally {
     document.getElementById('loader').classList.remove('show');
     btn.disabled = false;

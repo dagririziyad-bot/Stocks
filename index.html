@@ -347,9 +347,9 @@
     position: fixed; inset: 0;
     background: rgba(0,0,0,.7);
     z-index: 200;
-    display: flex; align-items: center; justify-content: center;
+    display: none; align-items: center; justify-content: center;
   }
-  .modal-overlay.hidden { display: none; }
+  .modal-overlay.visible { display: flex; }
   .modal {
     background: var(--surface);
     border: 1px solid var(--border2);
@@ -419,7 +419,7 @@
 <body>
 
 <!-- API Key Modal -->
-<div class="modal-overlay" id="apiModal">
+<div class="modal-overlay visible" id="apiModal">
   <div class="modal">
     <h2>⚡ Connect Polygon.io</h2>
     <p>Enter your Polygon.io API key to fetch live options data. Your key is stored locally in the browser only — never sent anywhere else.</p>
@@ -429,9 +429,10 @@
       Don't have a key? <a href="https://polygon.io/dashboard/signup" target="_blank" style="color:var(--accent);">Get one free at polygon.io →</a>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-primary" onclick="saveApiKey()">CONNECT</button>
+      <button class="btn btn-primary" id="connectBtn" onclick="saveApiKey()">CONNECT</button>
       <button class="btn btn-secondary" onclick="useDemoMode()">USE DEMO DATA</button>
     </div>
+    <div id="connectError" style="margin-top:10px; font-size:11px; color:var(--bear); font-family:var(--mono); display:none;"></div>
   </div>
 </div>
 
@@ -609,9 +610,9 @@ let stockPrice = 0;
 window.onload = () => {
   checkMarketStatus();
   if (!API_KEY) {
-    document.getElementById('apiModal').classList.remove('hidden');
+    document.getElementById('apiModal').classList.add('visible');
   } else {
-    document.getElementById('apiModal').classList.add('hidden');
+    document.getElementById('apiModal').classList.remove('visible');
   }
   setInterval(checkMarketStatus, 60000);
 };
@@ -636,23 +637,57 @@ function checkMarketStatus() {
 }
 
 // ── API KEY ──
-function saveApiKey() {
+async function saveApiKey() {
   const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key) { showToast('Enter a valid API key', 'error'); return; }
-  API_KEY = key;
-  DEMO_MODE = false;
-  localStorage.setItem('polygon_key', key);
-  document.getElementById('apiModal').classList.add('hidden');
-  showToast('API key saved ✓', 'success');
+  if (!key) { showConnectError('Enter a valid API key'); return; }
+
+  const btn = document.getElementById('connectBtn');
+  btn.textContent = 'CONNECTING...';
+  btn.disabled = true;
+  document.getElementById('connectError').style.display = 'none';
+
+  try {
+    // Test the key with a lightweight call
+    const testUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/AAPL?apiKey=${key}`;
+    const res = await fetch(testUrl);
+    const data = await res.json();
+
+    if (data.status === 'ERROR' || data.error) {
+      throw new Error(data.error || 'Invalid API key');
+    }
+    if (res.status === 403) throw new Error('API key unauthorized — check your Polygon plan');
+    if (!data.ticker) throw new Error('Unexpected response — check your API key');
+
+    // Success
+    API_KEY = key;
+    DEMO_MODE = false;
+    localStorage.setItem('polygon_key', key);
+    document.getElementById('apiModal').classList.remove('visible');
+    showToast('Connected to Polygon.io ✓', 'success');
+
+  } catch (err) {
+    showConnectError('❌ ' + err.message);
+  } finally {
+    btn.textContent = 'CONNECT';
+    btn.disabled = false;
+  }
 }
+
+function showConnectError(msg) {
+  const el = document.getElementById('connectError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
 function showApiModal() {
   document.getElementById('apiKeyInput').value = API_KEY;
-  document.getElementById('apiModal').classList.remove('hidden');
+  document.getElementById('connectError').style.display = 'none';
+  document.getElementById('apiModal').classList.add('visible');
 }
 function useDemoMode() {
   DEMO_MODE = true;
   API_KEY = '';
-  document.getElementById('apiModal').classList.add('hidden');
+  document.getElementById('apiModal').classList.remove('visible');
   showToast('Demo mode — using synthetic data', 'success');
 }
 
@@ -1000,7 +1035,7 @@ function openDetail(c) {
         <div class="greek-item">
           <div class="g-name">IMPLIED VOL</div>
           <div class="g-val" style="color:${c.iv>0.7?'var(--bear)':c.iv>0.4?'var(--warn)':'var(--bull)'}">${(c.iv*100).toFixed(1)}%</div>
-          <div class="g-desc">${c.iv>0.7?'Very High':'c.iv>0.4?Elevated':'Normal'}</div>
+          <div class="g-desc">${c.iv>0.7?'Very High':c.iv>0.4?'Elevated':'Normal'}</div>
         </div>
         <div class="greek-item">
           <div class="g-name">MONEYNESS</div>

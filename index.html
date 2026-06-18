@@ -433,23 +433,40 @@
 <div class="shell">
   <!-- Sidebar -->
   <div class="sidebar">
+    <!-- MODE TABS -->
     <div class="sidebar-section">
-      <h3>TICKER</h3>
-      <input type="text" id="tickerInput" placeholder="AAPL, TSLA, SPY..." value="AAPL" />
-      <div class="ticker-row" id="watchlist">
-        <div class="ticker-badge active" onclick="quickTicker(this,'AAPL')">AAPL</div>
-        <div class="ticker-badge" onclick="quickTicker(this,'TSLA')">TSLA</div>
-        <div class="ticker-badge" onclick="quickTicker(this,'SPY')">SPY</div>
-        <div class="ticker-badge" onclick="quickTicker(this,'NVDA')">NVDA</div>
-        <div class="ticker-badge" onclick="quickTicker(this,'AMD')">AMD</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:4px;">
+        <button class="btn btn-primary" id="modeMarket" onclick="setMode('market')" style="font-size:11px; padding:8px;">🔍 AUTO SCAN</button>
+        <button class="btn btn-secondary" id="modeSingle" onclick="setMode('single')" style="font-size:11px; padding:8px;">📌 SINGLE</button>
       </div>
     </div>
 
-    <div class="sidebar-section">
-      <h3>FILTERS</h3>
+    <!-- AUTO SCAN PANEL -->
+    <div id="panelMarket" class="sidebar-section">
+      <h3>MARKET SCANNER</h3>
+      <label>SCAN LIST</label>
+      <select id="scanList">
+        <option value="mega">Mega Cap (AAPL MSFT NVDA AMZN GOOGL META TSLA)</option>
+        <option value="tech">Tech Leaders (AMD INTC NFLX CRM SNOW PLTR UBER)</option>
+        <option value="etf">ETFs (SPY QQQ IWM GLD SLV TLT)</option>
+        <option value="volatile">High Volatility (TSLA MARA RIOT COIN RBLX GME)</option>
+        <option value="custom">Custom List...</option>
+      </select>
+      <div id="customTickersWrap" style="display:none;">
+        <label>TICKERS (comma separated)</label>
+        <input type="text" id="customTickers" placeholder="AAPL, TSLA, NVDA..." />
+      </div>
+
+      <label>SIGNAL FILTER</label>
+      <select id="signalFilter">
+        <option value="75">Strong Buy only (75+)</option>
+        <option value="55" selected>Buy + Strong Buy (55+)</option>
+        <option value="0">Show All</option>
+      </select>
+
       <label>OPTION TYPE</label>
       <select id="typeFilter">
-        <option value="all">All (Calls + Puts)</option>
+        <option value="all">Calls + Puts</option>
         <option value="call">Calls Only</option>
         <option value="put">Puts Only</option>
       </select>
@@ -460,36 +477,43 @@
         <option value="14">Next 14 days</option>
         <option value="30" selected>Next 30 days</option>
         <option value="60">Next 60 days</option>
-        <option value="90">Next 90 days</option>
       </select>
 
       <label>MIN VOLUME</label>
       <input type="number" id="volFilter" value="100" min="0" />
-
       <label>MIN OPEN INTEREST</label>
-      <input type="number" id="oiFilter" value="500" min="0" />
-
-      <label>DELTA RANGE</label>
+      <input type="number" id="oiFilter" value="200" min="0" />
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-        <input type="number" id="deltaMin" placeholder="Min (0.1)" value="0.2" step="0.05" min="0" max="1" style="margin-bottom:0" />
-        <input type="number" id="deltaMax" placeholder="Max (0.9)" value="0.8" step="0.05" min="0" max="1" style="margin-bottom:10px" />
+        <input type="number" id="deltaMin" value="0.2" step="0.05" min="0" max="1" style="margin-bottom:0" placeholder="Delta Min" />
+        <input type="number" id="deltaMax" value="0.8" step="0.05" min="0" max="1" style="margin-bottom:10px" placeholder="Delta Max" />
       </div>
 
-      <label>SORT BY</label>
-      <select id="sortBy">
-        <option value="score">Score (Best First)</option>
-        <option value="volume">Volume</option>
-        <option value="oi">Open Interest</option>
-        <option value="iv">Implied Volatility</option>
-        <option value="expiry">Expiry (Nearest)</option>
-      </select>
+      <button class="btn btn-primary" id="scanBtn" onclick="runMarketScan()">⚡ SCAN MARKET</button>
+      <button class="btn btn-secondary" onclick="clearResults()" style="margin-top:6px;">✕ CLEAR</button>
+      <button class="btn btn-secondary" onclick="useDemoMode()" style="margin-top:4px; font-size:10px; opacity:.6;">DEMO MODE</button>
+
+      <div id="scanProgress" style="display:none; margin-top:12px;">
+        <div style="font-size:10px; font-family:var(--mono); color:var(--muted); margin-bottom:6px;" id="scanProgressText">جاري السكان...</div>
+        <div style="background:var(--border); border-radius:4px; height:4px; overflow:hidden;">
+          <div id="scanProgressBar" style="height:100%; background:var(--accent); width:0%; transition:width .3s;"></div>
+        </div>
+      </div>
     </div>
 
-    <div class="sidebar-section">
-      <h3>SCAN</h3>
-      <button class="btn btn-primary" id="scanBtn" onclick="runScan()">▶ RUN SCAN</button>
-      <button class="btn btn-secondary" onclick="clearResults()">✕ CLEAR</button>
-      <button class="btn btn-secondary" onclick="useDemoMode()" style="margin-top:4px; font-size:10px;">DEMO MODE</button>
+    <!-- SINGLE TICKER PANEL -->
+    <div id="panelSingle" class="sidebar-section" style="display:none;">
+      <h3>TICKER</h3>
+      <input type="text" id="tickerInput" placeholder="AAPL, TSLA, SPY..." value="AAPL" />
+      <div class="ticker-row" id="watchlist">
+        <div class="ticker-badge active" onclick="quickTicker(this,'AAPL')">AAPL</div>
+        <div class="ticker-badge" onclick="quickTicker(this,'TSLA')">TSLA</div>
+        <div class="ticker-badge" onclick="quickTicker(this,'SPY')">SPY</div>
+        <div class="ticker-badge" onclick="quickTicker(this,'NVDA')">NVDA</div>
+        <div class="ticker-badge" onclick="quickTicker(this,'AMD')">AMD</div>
+      </div>
+      <button class="btn btn-primary" id="scanBtnSingle" onclick="runScan()">▶ RUN SCAN</button>
+      <button class="btn btn-secondary" onclick="clearResults()" style="margin-top:6px;">✕ CLEAR</button>
+      <button class="btn btn-secondary" onclick="useDemoMode()" style="margin-top:4px; font-size:10px; opacity:.6;">DEMO MODE</button>
     </div>
 
     <div class="sidebar-section" id="stockInfoBox" style="display:none;">
@@ -537,15 +561,16 @@
       </div>
 
       <div id="emptyState" class="empty-state">
-        <div class="icon">📊</div>
-        <h3>Ready to Scan</h3>
-        <p>Enter your Polygon.io API key, select a ticker, set your filters, then hit RUN SCAN to find the best options.</p>
+        <div class="icon">⚡</div>
+        <h3>Market Scanner جاهز</h3>
+        <p>اضغط <strong>SCAN MARKET</strong> وسيسكن المنصة تلقائياً أفضل فرص الخيارات من قائمة الأسهم المختارة — بدون أي API Key.</p>
       </div>
 
       <div id="tableContainer" style="display:none;">
         <table>
           <thead>
             <tr>
+              <th onclick="sortTable('ticker')">TICKER <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('type')" data-tip="Call or Put">TYPE <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('strike')" data-tip="Strike Price">STRIKE <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('expiry')" data-tip="Expiration Date">EXPIRY <span class="sort-icon">↕</span></th>
@@ -553,7 +578,6 @@
               <th onclick="sortTable('last')" data-tip="Last Trade Price">LAST <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('iv')" data-tip="Implied Volatility">IV <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('volume')" data-tip="Today's Volume">VOL <span class="sort-icon">↕</span></th>
-              <th onclick="sortTable('oi')" data-tip="Open Interest">OI <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('delta')" data-tip="Delta Greek">DELTA <span class="sort-icon">↕</span></th>
               <th onclick="sortTable('score')" data-tip="Composite Score">SCORE <span class="sort-icon">↕</span></th>
               <th>REC</th>
@@ -588,7 +612,98 @@ let sortCol = 'score';
 let sortDir = -1;
 let stockPrice = 0;
 
-// ── CORS PROXIES (fallback chain) ──
+// ── SCAN LISTS ──
+const SCAN_LISTS = {
+  mega:     ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA'],
+  tech:     ['AMD','INTC','NFLX','CRM','SNOW','PLTR','UBER'],
+  etf:      ['SPY','QQQ','IWM','GLD','SLV','TLT'],
+  volatile: ['TSLA','MARA','RIOT','COIN','RBLX','GME'],
+};
+
+// ── MODE SWITCH ──
+function setMode(mode) {
+  const isMarket = mode === 'market';
+  document.getElementById('panelMarket').style.display = isMarket ? '' : 'none';
+  document.getElementById('panelSingle').style.display = isMarket ? 'none' : '';
+  document.getElementById('modeMarket').className = `btn ${isMarket ? 'btn-primary' : 'btn-secondary'}`;
+  document.getElementById('modeSingle').className = `btn ${!isMarket ? 'btn-primary' : 'btn-secondary'}`;
+}
+
+// ── CUSTOM LIST TOGGLE ──
+document.addEventListener('DOMContentLoaded', () => {
+  const sl = document.getElementById('scanList');
+  if (sl) sl.addEventListener('change', () => {
+    document.getElementById('customTickersWrap').style.display = sl.value === 'custom' ? '' : 'none';
+  });
+});
+
+// ── MARKET SCANNER ──
+async function runMarketScan() {
+  const listVal = document.getElementById('scanList')?.value || 'mega';
+  let tickers = listVal === 'custom'
+    ? (document.getElementById('customTickers')?.value || '').split(',').map(t => t.trim().toUpperCase()).filter(Boolean)
+    : SCAN_LISTS[listVal] || SCAN_LISTS.mega;
+
+  if (!tickers.length) { showToast('أضف tickers في الحقل', 'error'); return; }
+
+  const minScore = parseInt(document.getElementById('signalFilter')?.value || '55');
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ SCANNING...';
+  document.getElementById('loader').classList.add('show');
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('tableContainer').style.display = 'none';
+  document.getElementById('scanProgress').style.display = 'block';
+
+  allContracts = [];
+  let done = 0;
+
+  for (const ticker of tickers) {
+    document.getElementById('scanProgressText').textContent = `جاري فحص ${ticker}... (${done+1}/${tickers.length})`;
+    document.getElementById('scanProgressBar').style.width = `${Math.round((done/tickers.length)*100)}%`;
+    try {
+      let options, sp;
+      if (DEMO_MODE) {
+        await new Promise(r => setTimeout(r, 200));
+        const demo = generateDemoData(ticker);
+        allContracts.push(...demo.slice(0,10).map(c => ({...c, ticker})));
+      } else {
+        const res = await fetchFromYahoo(ticker);
+        sp = res.stockPrice;
+        const parsed = parseYahooOptions(res.options, sp);
+        allContracts.push(...parsed.filter(c => c.score >= minScore).slice(0,8).map(c => ({...c, ticker})));
+      }
+    } catch { /* skip failed tickers */ }
+    done++;
+    // small delay to avoid rate limiting
+    if (!DEMO_MODE) await new Promise(r => setTimeout(r, 600));
+  }
+
+  document.getElementById('scanProgressBar').style.width = '100%';
+  document.getElementById('scanProgressText').textContent = `اكتمل — تم فحص ${done} سهم`;
+  setTimeout(() => document.getElementById('scanProgress').style.display = 'none', 1500);
+
+  // Sort all by score desc
+  allContracts.sort((a,b) => b.score - a.score);
+
+  document.getElementById('loader').classList.remove('show');
+  btn.disabled = false;
+  btn.textContent = '⚡ SCAN MARKET';
+
+  const label = DEMO_MODE ? 'DEMO' : 'LIVE';
+  document.getElementById('tableTitle').textContent = `MARKET SCAN — ${label} — أفضل ${allContracts.length} فرصة`;
+
+  renderTable(allContracts);
+  updateStats(allContracts);
+
+  if (allContracts.length === 0) {
+    showToast('لم تُوجد فرص — جرب تخفيف الفلاتر أو Demo Mode', 'error');
+    document.getElementById('emptyState').style.display = 'flex';
+    document.getElementById('emptyState').innerHTML = `<div class="icon">🔍</div><h3>لا توجد فرص</h3><p>خفّف Min Score أو Signal Filter، أو جرب DEMO MODE</p>`;
+  } else {
+    showToast(`⚡ وجدنا ${allContracts.length} فرصة من ${done} سهم`, 'success');
+  }
+}
 const PROXIES = [
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -863,14 +978,14 @@ async function runScan() {
   try {
     if (DEMO_MODE) {
       await new Promise(r => setTimeout(r, 800));
-      allContracts = generateDemoData(ticker);
+      allContracts = generateDemoData(ticker).map(c => ({...c, ticker}));
       setProgress(100);
       document.getElementById('tableTitle').textContent = `${ticker} — DEMO MODE (${allContracts.length} contracts)`;
     } else {
       setProgress(30);
       const { stockPrice: sp, options } = await fetchFromYahoo(ticker);
       setProgress(80);
-      allContracts = parseYahooOptions(options, sp);
+      allContracts = parseYahooOptions(options, sp).map(c => ({...c, ticker}));
       setProgress(100);
       document.getElementById('tableTitle').textContent = `${ticker} — YAHOO FINANCE (${allContracts.length} contracts)`;
     }
@@ -924,6 +1039,7 @@ function renderTable(contracts) {
     const scoreColor = c.score >= 75 ? 'var(--bull)' : c.score >= 55 ? 'var(--accent2)' : c.score >= 35 ? 'var(--warn)' : 'var(--bear)';
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td><span style="font-family:var(--mono); font-weight:600; color:var(--text); font-size:12px;">${c.ticker || '—'}</span></td>
       <td><span class="type-badge ${c.type}">${c.type.toUpperCase()}</span></td>
       <td>$${c.strike.toFixed(2)}</td>
       <td>${c.expiry}</td>
@@ -931,7 +1047,6 @@ function renderTable(contracts) {
       <td>$${c.last.toFixed(2)}</td>
       <td style="color:${c.iv>0.7?'var(--bear)':c.iv>0.4?'var(--warn)':'var(--bull)'}">${(c.iv*100).toFixed(0)}%</td>
       <td>${c.volume.toLocaleString()}</td>
-      <td>${c.openInterest.toLocaleString()}</td>
       <td style="color:${Math.abs(c.delta)>=0.3&&Math.abs(c.delta)<=0.6?'var(--bull)':'var(--text)'}">${c.delta.toFixed(3)}</td>
       <td>
         <div class="score-bar">

@@ -705,19 +705,34 @@ async function runMarketScan() {
   }
 }
 const PROXIES = [
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  url => `https://cors-anywhere.herokuapp.com/${url}`,
+  url => `https://thingproxy.freeboard.io/fetch/${url}`,
+  url => `https://proxy.cors.sh/${url}`,
 ];
 
 async function fetchWithProxy(url) {
-  for (const proxy of PROXIES) {
+  // Try direct first
+  try {
+    const res = await fetch(url, { mode: 'cors', headers: { 'Accept': 'application/json' } });
+    if (res.ok) return res;
+  } catch {}
+
+  // Try each proxy in order
+  for (const makeProxy of PROXIES) {
     try {
-      const res = await fetch(proxy(url), { headers: { 'Accept': 'application/json' } });
-      if (res.ok) return res;
+      const proxyUrl = makeProxy(url);
+      const res = await fetch(proxyUrl, {
+        headers: { 'Accept': 'application/json', 'x-requested-with': 'XMLHttpRequest' }
+      });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (text && text.length > 20 && text.trim().startsWith('{')) {
+        return new Response(text, { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
     } catch {}
   }
-  throw new Error('تعذّر الاتصال بـ Yahoo Finance — جرب Demo Mode مؤقتاً');
+  throw new Error('تعذّر الاتصال بـ Yahoo Finance — جرب Demo Mode أو ارفع الملف على GitHub Pages');
 }
 
 // ── INIT ──
@@ -833,45 +848,72 @@ function getRecommendation(score) {
   return { label: 'AVOID', cls: 'avoid', icon: '❌' };
 }
 
-// ── FETCH FROM YAHOO FINANCE (مجاني - بلا API Key) ──
+// ── FETCH FROM YAHOO FINANCE ──
 async function fetchFromYahoo(ticker) {
-  // 1. Get stock quote + options expirations
-  const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/options/${ticker}`;
-  const quoteRes = await fetchWithProxy(quoteUrl);
-  const quoteData = await quoteRes.json();
+  // Try multiple Yahoo endpoints — different ones work in different environments
+  const endpoints = [
+    `https://query2.finance.yahoo.com/v7/finance/options/${ticker}`,
+    `https://query1.finance.yahoo.com/v7/finance/options/${ticker}`,
+    `https://finance.yahoo.com/quote/${ticker}/options`,
+  ];
 
-  const result = quoteData?.optionChain?.result?.[0];
-  if (!result) throw new Error(`Ticker "${ticker}" غير موجود أو لا توجد له خيارات`);
+  let quoteData = null;
+  let lastErr = '';
 
-  stockPrice = result.quote?.regularMarketPrice || result.quote?.ask || 0;
-  const allExpDates = result.expirationDates || []; // Unix timestamps
+  for (const url of endpoints.slice(0, 2)) {
+    try {
+      const res = await fetchWithProxy(url);
+      const data = await res.json();
+      if (data?.optionChain?.result?.[0]) { quoteData = data; break; }
+    } catch (e) { lastErr = e.message; }
+  }
 
-  // 2. Filter by DTE
+  if (!quoteData) throw new Error(`تعذّر جلب بيانات ${ticker} — ${lastErr}`);
+
+  const result = quoteData.optionChain.result[0];
+  stockPrice = result.quote?.regularMarketPrice || result.quote?.regularMarketPreviousClose || 0;
+  const allExpDates = result.expirationDates || [];
+
   const expDays = parseInt(document.getElementById('expiryFilter').value);
   const nowSec = Date.now() / 1000;
   const maxSec = nowSec + expDays * 86400;
   const validDates = allExpDates.filter(d => d >= nowSec && d <= maxSec);
 
-  if (validDates.length === 0) throw new Error(`لا توجد عقود في نطاق ${expDays} يوم — جرب نطاق أوسع`);
+  // If no dates in range, take closest available
+  const toFetch = validDates.length > 0
+    ? validDates.slice(0, 4)
+    : allExpDates.slice(0, 2);
 
-  // 3. Fetch each expiration (max 5)
-  const toFetch = validDates.slice(0, 5);
+  if (toFetch.length === 0) throw new Error(`لا توجد عقود متاحة لـ ${ticker}`);
+
   const allOptions = [];
 
-  for (const expTs of toFetch) {
-    const chainUrl = `https://query1.finance.yahoo.com/v7/finance/options/${ticker}?date=${expTs}`;
-    try {
-      const chainRes = await fetchWithProxy(chainUrl);
-      const chainData = await chainRes.json();
-      const opts = chainData?.optionChain?.result?.[0]?.options?.[0];
-      if (!opts) continue;
-      const calls = (opts.calls || []).map(c => ({ ...c, _type: 'call' }));
-      const puts  = (opts.puts  || []).map(p => ({ ...p, _type: 'put'  }));
-      allOptions.push(...calls, ...puts);
-    } catch { continue; }
+  // Try to get options from initial result first (no extra call needed)
+  const initOpts = result.options?.[0];
+  if (initOpts) {
+    allOptions.push(
+      ...(initOpts.calls || []).map(c => ({ ...c, _type: 'call' })),
+      ...(initOpts.puts  || []).map(p => ({ ...p, _type: 'put'  }))
+    );
   }
 
-  if (allOptions.length === 0) throw new Error('لا توجد بيانات — جرب نطاقاً زمنياً أوسع');
+  // Fetch additional expirations
+  for (const expTs of toFetch.slice(1)) {
+    const chainUrl = `https://query2.finance.yahoo.com/v7/finance/options/${ticker}?date=${expTs}`;
+    try {
+      const res = await fetchWithProxy(chainUrl);
+      const data = await res.json();
+      const opts = data?.optionChain?.result?.[0]?.options?.[0];
+      if (!opts) continue;
+      allOptions.push(
+        ...(opts.calls || []).map(c => ({ ...c, _type: 'call' })),
+        ...(opts.puts  || []).map(p => ({ ...p, _type: 'put'  }))
+      );
+    } catch { continue; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  if (allOptions.length === 0) throw new Error(`لا توجد بيانات عقود لـ ${ticker} — جرب نطاقاً أوسع`);
   return { stockPrice, options: allOptions };
 }
 
